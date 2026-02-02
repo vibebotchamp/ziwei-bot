@@ -1,5 +1,5 @@
 fastapi
 uvicorn
 requests
-Pillow
-lunar-python
+pillow
+google-generativeai
