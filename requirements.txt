@@ -3,3 +3,4 @@ uvicorn
 requests
 pillow
 google-generativeai
+lunar-python
