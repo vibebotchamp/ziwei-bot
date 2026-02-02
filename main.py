@@ -1,7 +1,7 @@
 import io
 import os
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 
@@ -9,6 +9,32 @@ from PIL import Image, ImageDraw, ImageFont
 from ziwei_logic import get_chart 
 
 app = FastAPI()
+
+# --- 🔥 [關鍵] 設定 Meta 通關密語 🔥 ---
+VERIFY_TOKEN = "ziwei_secret_123"
+
+# --- 🔥 [關鍵] Webhook 驗證 (Meta 敲門用) 🔥 ---
+@app.get("/webhook")
+async def verify_webhook(
+    mode: str = Query(alias="hub.mode"),
+    token: str = Query(alias="hub.verify_token"),
+    challenge: str = Query(alias="hub.challenge")
+):
+    # 檢查密語是否正確
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        print("Meta 驗證成功！")
+        return int(challenge) # 回傳挑戰碼給 Meta
+    print("Meta 驗證失敗...")
+    raise HTTPException(status_code=403, detail="Token error")
+
+# --- 🔥 [關鍵] 接收訊息 (IG 傳訊用) 🔥 ---
+@app.post("/webhook")
+async def receive_message(request: Request):
+    data = await request.json()
+    print("收到 IG 訊息資料：", data) 
+    return {"status": "ok"}
+
+# ---------------- 下面是 v4.6 完美畫圖程式 ----------------
 
 # --- 基礎資料表 ---
 YANG_GAN = set(['甲', '丙', '戊', '庚', '壬'])
@@ -33,16 +59,16 @@ font_path_bold = FONT_PATH
 
 # --- 2. 配色主題 ---
 THEME = {
-    "bg": "#1A1A2E",          # 深藍底
-    "grid": "#C6A87C",        # 金色格線
-    "sidebar_bg": "#232342",  # 右側欄位底色
-    "box_bg": "#16213E",      # 小框框底色
-    "text_main": "#EAEAEA",   # 主文字白
+    "bg": "#1A1A2E",          
+    "grid": "#C6A87C",        
+    "sidebar_bg": "#232342",  
+    "box_bg": "#16213E",      
+    "text_main": "#EAEAEA",   
     "text_dim": "#8E8E93",    
-    "major_star": "#FFD700",  # 主星金
-    "lucky_star": "#FF6B6B",  # 吉星紅
-    "bad_star": "#4D96FF",    # 煞星藍
-    "flower_star": "#FF69B4", # 桃花粉
+    "major_star": "#FFD700",  
+    "lucky_star": "#FF6B6B",  
+    "bad_star": "#4D96FF",    
+    "flower_star": "#FF69B4", 
     "hua_lu": "#4CAF50",      
     "hua_quan": "#F44336",    
     "hua_ke": "#2196F3",      
@@ -51,7 +77,6 @@ THEME = {
 }
 
 def draw_chart(data):
-    # 設定畫布大小
     width, height = 1200, 1600
     img = Image.new('RGB', (width, height), color=THEME["bg"])
     draw = ImageDraw.Draw(img)
@@ -60,19 +85,15 @@ def draw_chart(data):
         font_h1 = ImageFont.truetype(font_path_bold, 56)
         font_palace_bold = ImageFont.truetype(font_path_bold, 42)
         font_palace_light = ImageFont.truetype(font_path_regular, 42)
-        
-        # --- 字體設定 ---
-        font_ganzhi = ImageFont.truetype(font_path_regular, 24) # 天干地支
+        font_ganzhi = ImageFont.truetype(font_path_regular, 24)
         font_daxian = ImageFont.truetype(font_path_bold, 34)    
         font_major = ImageFont.truetype(font_path_bold, 42)     
         font_normal = ImageFont.truetype(font_path_regular, 32) 
         font_mini = ImageFont.truetype(font_path_regular, 24)   
-        
         font_small = ImageFont.truetype(font_path_regular, 20)
     except:
         font_h1 = font_palace_bold = font_palace_light = font_ganzhi = font_daxian = font_major = font_normal = font_mini = font_small = ImageFont.load_default()
 
-    # --- A. 繪製中宮 ---
     center_x, center_y = width // 4, height // 4
     center_w, center_h = width // 2, height // 2
     
@@ -92,7 +113,6 @@ def draw_chart(data):
     gender_str = f"性別：{yinyang}{data['gender']} ({zodiac})"
     draw.text((width//2, info_start_y + gap*3), gender_str, fill=THEME["text_main"], font=font_info, anchor="mm")
 
-    # --- B. 繪製 12 宮位 ---
     col_w = width // 4
     row_h = height // 4
     
@@ -113,14 +133,11 @@ def draw_chart(data):
         x = c * col_w
         y = r * row_h
         
-        # 1. 畫格子主框線
         draw.rectangle([x, y, x+col_w, y+row_h], outline=THEME["grid"], width=2)
         
-        # 2. 畫右側側邊欄
         sidebar_x = x + col_w - SIDEBAR_W
         draw.rectangle([sidebar_x, y, x+col_w, y+row_h], outline=THEME["grid"], fill=THEME["sidebar_bg"], width=1)
         
-        # --- C. 側邊欄排版 ---
         raw_name = p['name']
         base_name = raw_name.replace("宮", "") 
         gan = p['ganzhi'][0]
@@ -128,7 +145,6 @@ def draw_chart(data):
         
         text_center_x = sidebar_x + SIDEBAR_W // 2
         
-        # 1. 繪製天干地支 (沉底)
         ganzhi_box_h = 70 
         ganzhi_box_w = 40 
         bottom_margin = 15
@@ -142,7 +158,6 @@ def draw_chart(data):
         draw.text((text_center_x, box_y1 + 18), gan, fill=THEME["text_dim"], font=font_ganzhi, anchor="mm")
         draw.text((text_center_x, box_y1 + 52), zhi, fill=THEME["text_dim"], font=font_ganzhi, anchor="mm")
         
-        # 2. 繪製宮位名稱
         available_h = row_h - (ganzhi_box_h + bottom_margin + 20)
         total_chars = len(base_name) + 1 
         if p['is_body']: total_chars += 1
@@ -160,7 +175,6 @@ def draw_chart(data):
         if p['is_body']:
             draw.text((text_center_x, current_y), "身", fill=THEME["lucky_star"], font=font_palace_bold, anchor="mm")
 
-        # --- D. 底部大限框 ---
         daxian_text = p['daxian']
         text_w = font_daxian.getlength(daxian_text)
         daxian_box_w = max(90, int(text_w) + 24) 
@@ -171,7 +185,6 @@ def draw_chart(data):
         draw.rectangle([daxian_x, daxian_y, daxian_x + daxian_box_w, daxian_y + daxian_box_h], outline=THEME["grid"], fill=THEME["box_bg"])
         draw.text((daxian_x + daxian_box_w//2, daxian_y + daxian_box_h//2), daxian_text, fill="white", font=font_daxian, anchor="mm")
 
-        # 標籤
         tag_y_pos = daxian_y - 35
         tags = p['tags']
         def draw_badge(label, bg_color):
@@ -184,20 +197,16 @@ def draw_chart(data):
         if tags['doujun']:  draw_badge("斗君", THEME["hua_ji"])   
         if tags['dayun']:   draw_badge("大限", THEME["tag_dayun"]) 
 
-        # --- 🔥 E. 星曜直排 (自動換行/防爆版) 🔥 ---
         major_stars = [s for s in p['stars'] if s['type'] == 'major']
         minor_stars = [s for s in p['stars'] if s['type'] != 'major']
-        
         all_stars = major_stars + minor_stars
         
         hua_map_color = {'祿': THEME['hua_lu'], '權': THEME['hua_quan'], '科': THEME['hua_ke'], '忌': THEME['hua_ji']}
         
-        # 起始座標
         cursor_x_start = sidebar_x - 25
         cursor_y_start = y + 20
-        
         cursor_x = cursor_x_start
-        cursor_y_base = cursor_y_start # 這一行的基準Y
+        cursor_y_base = cursor_y_start 
         
         for star in all_stars:
             s_name = star['name']
@@ -217,31 +226,19 @@ def draw_chart(data):
                 elif s_type == 'bad': color = THEME["bad_star"]
                 else: color = THEME["flower_star"]
             
-            # --- 🔥 換行邏輯判斷 🔥 ---
-            # 如果 X 座標太左邊 (快撞到左邊界了)
             if cursor_x < x + 10:
-                # 換行：重置 X 回右邊，Y 往下移動一行
                 cursor_x = cursor_x_start 
-                
-                # 計算下一行的高度：預估一行大概佔 160px (含字+四化+間距)
-                # 確保新的一行不會蓋到上一行的尾巴
                 cursor_y_base += 160 
             
-            # --- 🔥 底部安全檢查 🔥 ---
-            # 如果 Y 座標太低 (快撞到大限框了)，就停止繪製
-            # 預留 100px 給底部的大限框與標籤
             if cursor_y_base > y + row_h - 100:
                 break 
 
-            # 開始畫字
             cur_draw_y = cursor_y_base 
             
-            # 1. 畫星名
             for char in s_name:
                 draw.text((cursor_x, cur_draw_y), char, fill=color, font=font, anchor="mm")
                 cur_draw_y += char_spacing
             
-            # 2. 畫四化
             if s_hua:
                 bg_color = hua_map_color.get(s_hua, "white")
                 box_size = 38 if s_type == 'major' else 30
@@ -251,10 +248,8 @@ def draw_chart(data):
                     cursor_x - box_size//2, hua_y - box_size//2, 
                     cursor_x + box_size//2, hua_y + box_size//2
                 ], fill=bg_color)
-                
                 draw.text((cursor_x, hua_y), s_hua, fill="white", font=font, anchor="mm")
             
-            # 畫完一顆星，X 往左移
             cursor_x -= col_width
 
     return img
