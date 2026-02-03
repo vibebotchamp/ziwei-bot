@@ -223,18 +223,34 @@ async def receive_message(request: Request):
                             logger.info(f"收到訊息: {text}")
                             
                             # 🔥 判斷指令：是否有空格非常重要！ 🔥
-                            # 格式範例：命盤 1990 1 1 12 女
+                            # 格式範例：命盤 1990 1 1 12 女 (預設國曆)
+                            # 格式範例：命盤 1990 1 1 12 女 陰 (指定農曆)
                             if text.startswith("命盤"):
                                 try:
                                     parts = text.split() # 用空格切分
+                                    
+                                    # 確保至少有 6 個參數 (命盤+年+月+日+時+性別)
                                     if len(parts) >= 6:
-                                        y, m, d, h, g = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), parts[5]
-                                        chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={g}"
+                                        y = int(parts[1])
+                                        m = int(parts[2])
+                                        d = int(parts[3])
+                                        h = int(parts[4])
+                                        g = parts[5]
                                         
-                                        reply_text(sender_id, "大師正在繪製命盤，請稍候...")
+                                        # 偵測第 7 個參數，如果有寫 "陰" 或 "農"，就開啟農曆模式
+                                        is_lunar_param = "false"
+                                        type_str = "國曆"
+                                        if len(parts) >= 7 and (parts[6] == "陰" or parts[6] == "農"):
+                                            is_lunar_param = "true"
+                                            type_str = "農曆"
+                                        
+                                        # 組合網址 (把 is_lunar 參數帶進去)
+                                        chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={g}&is_lunar={is_lunar_param}"
+                                        
+                                        reply_text(sender_id, f"大師收到！正在為您繪製 {y}年{m}月{d}日 ({type_str}) 的命盤...")
                                         reply_image(sender_id, chart_url)
                                     else:
-                                        reply_text(sender_id, "格式錯誤！請依照：\n命盤 1990 1 1 12 女\n(中間要有空格)")
+                                        reply_text(sender_id, "格式錯誤！請依照：\n國曆：命盤 1990 1 1 12 女\n農曆：命盤 1990 1 1 12 女 陰")
                                 except Exception as e:
                                     logger.error(f"解析錯誤: {e}")
                                     reply_text(sender_id, "資料有誤，請檢查輸入格式。")
