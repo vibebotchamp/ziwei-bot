@@ -224,19 +224,23 @@ def get_chart(year, month, day, hour, gender="女", target_year=2025, is_lunar=F
             }
         })
 
-    date_type = "農曆" if is_lunar else "國曆"
+    # 🔥🔥🔥 修復顯示文字邏輯 🔥🔥🔥
+    if is_lunar:
+        # 如果使用者輸入是農曆，就顯示轉換後的農曆日期
+        date_str = f"農曆 {lunar_year}年 {lunar_month}月 {lunar_day}日"
+    else:
+        # 如果使用者輸入是國曆，就顯示原始輸入的國曆日期 (這裡直接拿 input year/month/day)
+        date_str = f"國曆 {year}年 {month}月 {day}日"
     
-    # 🔥🔥🔥 這裡新增了流年干支的計算邏輯 🔥🔥🔥
     target_offset = (target_year - 4) % 60
     target_gan_char = GAN[target_offset % 10]
     target_zhi_char = ZHI[target_offset % 12]
-    # 🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥
 
     return {
-        "lunar_str": f"{date_type} {lunar_year}年 {lunar_month}月 {lunar_day}日 {ZHI[time_idx]}時",
+        "lunar_str": f"{date_str} {ZHI[time_idx]}時", # 這裡的字串已經修正
         "bureau": bureau_name,
         "palaces": palaces,
-        "age_info": f"流年 {target_year} ({target_gan_char}{target_zhi_char}年) 虛歲 {current_age}", # 這裡顯示干支
+        "age_info": f"流年 {target_year} ({target_gan_char}{target_zhi_char}年) 虛歲 {current_age}",
         "year_gan": year_gan,
         "year_zhi": year_zhi,
         "gender": gender
