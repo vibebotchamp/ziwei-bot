@@ -23,13 +23,10 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# --- 1. 環境變數 (名稱換成 LINE 的) ---
-# 請去 Render 設定這兩個新的變數
+# --- 1. 環境變數 ---
 LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN")
 LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
-# 您的 Render 網址 (記得換成您的網址)
 BASE_URL = "https://ziweibot.onrender.com"
 
 # 初始化 LINE Bot
@@ -39,7 +36,7 @@ if LINE_CHANNEL_ACCESS_TOKEN and LINE_CHANNEL_SECRET:
 else:
     logger.error("❌ LINE 變數未設定！請去 Render 檢查！")
 
-# --- 2. 設定 Gemini (1.5-flash) ---
+# --- 2. 設定 Gemini ---
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
@@ -49,7 +46,7 @@ if GEMINI_API_KEY:
 else:
     logger.error("❌ 尚未設定 GEMINI_API_KEY！")
 
-# --- 3. 全域字體載入 (暴力檢測版) ---
+# --- 3. 字體載入 ---
 YANG_GAN = set(['甲', '丙', '戊', '庚', '壬'])
 ZODIAC_MAP = {'子':'鼠', '丑':'牛', '寅':'虎', '卯':'兔', '辰':'龍', '巳':'蛇', '午':'馬', '未':'羊', '申':'猴', '酉':'雞', '戌':'狗', '亥':'豬'}
 FONT_PATH = "NotoSansCJKtc-Regular.otf"
@@ -77,7 +74,7 @@ try:
     font_palace_light = ImageFont.truetype(FONT_PATH, 42)
     font_ganzhi = ImageFont.truetype(FONT_PATH, 24)
     font_daxian = ImageFont.truetype(FONT_PATH, 34)    
-    font_major = ImageFont.truetype(FONT_PATH, 42)     
+    font_major = ImageFont.truetype(FONT_PATH, 42)      
     font_normal = ImageFont.truetype(FONT_PATH, 32) 
     font_mini = ImageFont.truetype(FONT_PATH, 24)
     font_info = ImageFont.truetype(FONT_PATH, 32)
@@ -93,7 +90,7 @@ THEME = {
     "hua_ji": "#9C27B0", "tag_dayun": "#FF4500",
 }
 
-# --- 4. 畫圖函數 (保持不變) ---
+# --- 4. 畫圖函數 ---
 def draw_chart(data):
     width, height = 1200, 1600
     img = Image.new('RGB', (width, height), color=THEME["bg"])
@@ -163,7 +160,7 @@ def draw_chart(data):
             draw.text((daxian_x + 30, tag_y_pos + 15), label, fill="white", font=font_mini, anchor="mm")
             tag_y_pos -= 35
         if tags.get('liunian'): draw_badge("流年", THEME["hua_quan"]) 
-        if tags.get('doujun'):  draw_badge("斗君", THEME["hua_ji"])   
+        if tags.get('doujun'):  draw_badge("斗君", THEME["hua_ji"])    
         if tags.get('dayun'):   draw_badge("大限", THEME["tag_dayun"]) 
         major_stars = [s for s in p['stars'] if s['type'] == 'major']
         minor_stars = [s for s in p['stars'] if s['type'] != 'major']
@@ -178,7 +175,7 @@ def draw_chart(data):
             s_type = star['type']
             s_hua = star['hua']
             if s_type == 'major':
-                font = font_major; color = THEME["major_star"]; col_width = 50; char_spacing = 44    
+                font = font_major; color = THEME["major_star"]; col_width = 50; char_spacing = 44   
             else:
                 font = font_normal; col_width = 38; char_spacing = 34
                 if s_type == 'lucky': color = THEME["lucky_star"]
@@ -199,67 +196,89 @@ def draw_chart(data):
             cursor_x -= col_width
     return img
 
-# --- 5. LINE Webhook 處理 (這是 LINE 的大門) ---
+# --- 5. LINE Webhook 處理 ---
 @app.post("/callback")
 async def callback(request: Request):
-    # 取得 Header 的簽章
     signature = request.headers.get('X-Line-Signature', '')
-    # 取得 Body 內容
     body = await request.body()
     body_decoded = body.decode('utf-8')
-
     try:
-        # 交給 handler 處理，它會自動呼叫下面的 @handler.add
         handler.handle(body_decoded, signature)
     except InvalidSignatureError:
-        logger.error("❌ LINE 簽章驗證失敗，請檢查 Channel Secret")
+        logger.error("❌ LINE 簽章驗證失敗")
         raise HTTPException(status_code=400, detail="Invalid signature")
     return "OK"
 
-# --- 6. LINE 訊息邏輯 ---
+# --- 6. LINE 訊息邏輯 (🔥更新重點🔥) ---
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     text = event.message.text.strip()
-    user_id = event.source.user_id
     logger.info(f"📩 收到 LINE 訊息: {text}")
 
-    # 🔥 判斷指令：算命盤 🔥
-    if text.startswith("命盤"):
-        try:
-            parts = text.split()
-            if len(parts) >= 6:
-                y, m, d, h, g = int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]), parts[5]
-                
-                is_lunar_param = "false"
-                type_str = "國曆"
-                if len(parts) >= 7 and (parts[6] == "陰" or parts[6] == "農"):
-                    is_lunar_param = "true"
-                    type_str = "農曆"
-                
-                # 組合圖片網址
-                encoded_gender = urllib.parse.quote(g)
-                chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={encoded_gender}&is_lunar={is_lunar_param}"
-                logger.info(f"產生命盤 URL: {chart_url}")
-
-                # 回覆圖片 (LINE 需要 original 和 preview 兩個網址，我們給一樣的)
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    [
-                        TextSendMessage(text=f"大師正在為您繪製 {y}年{m}月{d}日 ({type_str}) 的命盤..."),
-                        ImageSendMessage(original_content_url=chart_url, preview_image_url=chart_url)
-                    ]
-                )
-            else:
-                line_bot_api.reply_message(
-                    event.reply_token,
-                    TextSendMessage(text="格式錯誤！請依照：\n命盤 1990 1 1 12 女 (陰)")
-                )
-        except Exception as e:
-            logger.error(f"解析錯誤: {e}")
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="資料有誤，請檢查輸入格式。"))
+    # 🔥 自動判斷：是「排盤指令」還是「聊天」？ 🔥
+    is_chart_request = False
     
-    # 🔥 一般聊天 (Gemini) 🔥
+    parts = text.split()
+    start_index = 0
+    
+    # 1. 容錯處理：如果有使用者還是習慣打 "命盤" 開頭，我們也接受
+    if len(parts) > 0 and parts[0] == "命盤":
+        start_index = 1
+
+    # 2. 判斷邏輯：如果前四個參數是數字 (年/月/日/時)，就認定是排盤
+    # 參數至少要有 5 個 (年 月 日 時 性別)
+    y, m, d, h, g = 0, 0, 0, 0, ""
+    is_lunar_param = "false" # 預設陽曆
+    
+    if len(parts) - start_index >= 5:
+        try:
+            # 嘗試解析數字，如果這裡報錯 (ValueError)，代表不是日期，就會跳去 else 聊天
+            y = int(parts[start_index])
+            m = int(parts[start_index+1])
+            d = int(parts[start_index+2])
+            h = int(parts[start_index+3])
+            g = parts[start_index+4]
+            
+            # 解析成功，確認是排盤請求
+            is_chart_request = True
+            
+            # 3. 處理「陰曆/陽曆」關鍵字 (🔥新增 農/農曆/國曆/陽曆🔥)
+            # 檢查第 6 個參數以後的文字
+            if len(parts) > start_index + 5:
+                calendar_tag = parts[start_index + 5]
+                
+                # 定義陰曆關鍵字
+                lunar_keywords = ["陰", "陰曆", "農", "農曆"]
+                
+                if calendar_tag in lunar_keywords:
+                    is_lunar_param = "true"
+                # 預設就是陽曆 (包含 "陽", "陽曆", "國曆", 或沒填)，所以不用特別寫 else
+                
+        except ValueError:
+            # 轉換失敗，代表不是排盤指令
+            pass
+
+    # --- 分流處理 ---
+    if is_chart_request:
+        # 進入排盤模式
+        try:
+            encoded_gender = urllib.parse.quote(g)
+            chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={encoded_gender}&is_lunar={is_lunar_param}"
+            logger.info(f"產生命盤 URL: {chart_url}")
+
+            line_bot_api.reply_message(
+                event.reply_token,
+                [
+                    TextSendMessage(text=f"大師正在為您繪製 {y}年{m}月{d}日 的命盤..."),
+                    ImageSendMessage(original_content_url=chart_url, preview_image_url=chart_url)
+                ]
+            )
+        except Exception as e:
+            logger.error(f"排盤失敗: {e}")
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text="大師手滑了，請檢查輸入格式是否正確。"))
+    
     else:
+        # 進入 Gemini 聊天模式
         if GEMINI_API_KEY:
             try:
                 response = model.generate_content(text)
@@ -269,20 +288,15 @@ def handle_message(event):
         else:
             reply_text = "大師腦袋還沒裝好 (API Key Missing)"
         
-        # 回覆文字
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text=reply_text)
         )
 
-# --- 7. 畫圖 API (這個要留著給 LINE 抓圖用) ---
+# --- 7. 畫圖 API ---
 @app.get("/test")
 def test_chart(year: int, month: int, day: int, hour: int, gender: str, is_lunar: bool = False):
     chart_data = get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=is_lunar)
-    img = draw_chart(chart_data)
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    return Response(content=img_byte_arr.getvalue(), media_type="image/png")
     img = draw_chart(chart_data)
     img_byte_arr = io.BytesIO()
     img.save(img_byte_arr, format='PNG')
