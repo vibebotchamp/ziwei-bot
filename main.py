@@ -3,12 +3,13 @@ import io
 import json
 import requests
 import logging
+import urllib.parse  # <--- 新增這個工具來處理中文網址
 import google.generativeai as genai
 from fastapi import FastAPI, Request, Query, HTTPException
 from fastapi.responses import Response
 from PIL import Image, ImageDraw, ImageFont
 
-# 引入您原本的紫微斗數計算邏輯
+# 引入核心邏輯
 from ziwei_logic import get_chart 
 
 # --- 設定 Log ---
@@ -22,10 +23,10 @@ VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "ziwei_secret_123")
 PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
-# 您的 Render 網址 (這行是圖片能顯示的關鍵)
+# 您的 Render 網址 (這行非常重要，請確認跟您瀏覽器網址列一樣)
 BASE_URL = "https://ziweibot.onrender.com"
 
-# --- 2. 設定 Gemini (修正為 1.5-flash 以解決 Quota 問題) ---
+# --- 2. 設定 Gemini (1.5-flash) ---
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
@@ -35,22 +36,20 @@ if GEMINI_API_KEY:
 else:
     logger.error("❌ 尚未設定 GEMINI_API_KEY！")
 
-# --- 3. 畫圖設定 (完整保留您的 v4.6 設計) ---
+# --- 3. 畫圖設定 (保持不變) ---
 YANG_GAN = set(['甲', '丙', '戊', '庚', '壬'])
 ZODIAC_MAP = {'子':'鼠', '丑':'牛', '寅':'虎', '卯':'兔', '辰':'龍', '巳':'蛇', '午':'馬', '未':'羊', '申':'猴', '酉':'雞', '戌':'狗', '亥':'豬'}
 FONT_PATH = "NotoSansCJKtc-Regular.otf"
 FONT_BOLD_PATH = "NotoSansCJKtc-Bold.otf" 
 
-# 下載字體
 if not os.path.exists(FONT_PATH):
-    logger.info("下載標準字體中...")
+    logger.info("下載字體中...")
     url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
     r = requests.get(url)
     with open(FONT_PATH, "wb") as f: f.write(r.content)
 font_path_regular = FONT_PATH
 font_path_bold = FONT_PATH 
 
-# 配色主題
 THEME = {
     "bg": "#1A1A2E", "grid": "#C6A87C", "sidebar_bg": "#232342", "box_bg": "#16213E",
     "text_main": "#EAEAEA", "text_dim": "#8E8E93", "major_star": "#FFD700",
@@ -59,13 +58,12 @@ THEME = {
     "hua_ji": "#9C27B0", "tag_dayun": "#FF4500",
 }
 
-# --- 4. 畫圖函數 (完整版) ---
+# --- 4. 畫圖函數 ---
 def draw_chart(data):
     width, height = 1200, 1600
     img = Image.new('RGB', (width, height), color=THEME["bg"])
     draw = ImageDraw.Draw(img)
     
-    # 字體設定
     try:
         font_h1 = ImageFont.truetype(font_path_bold, 56)
         font_palace_bold = ImageFont.truetype(font_path_bold, 42)
@@ -78,13 +76,11 @@ def draw_chart(data):
     except:
         font_h1 = font_palace_bold = font_palace_light = font_ganzhi = font_daxian = font_major = font_normal = font_mini = ImageFont.load_default()
 
-    # 畫框線
     center_x, center_y = width // 4, height // 4
     center_w, center_h = width // 2, height // 2
     draw.rectangle([center_x + 20, center_y + 20, center_x + center_w - 20, center_y + center_h - 20], outline=THEME["grid"], width=1)
     draw.text((width//2, center_y + 80), "紫微斗數", fill=THEME["text_main"], font=font_h1, anchor="mm")
     
-    # 中央資訊
     font_info = ImageFont.truetype(font_path_bold, 32)
     info_start_y = center_y + 180
     gap = 60
@@ -97,7 +93,6 @@ def draw_chart(data):
     gender_str = f"性別：{yinyang}{data['gender']} ({zodiac})"
     draw.text((width//2, info_start_y + gap*3), gender_str, fill=THEME["text_main"], font=font_info, anchor="mm")
 
-    # 宮位座標
     col_w, row_h = width // 4, height // 4
     pos_map = {
         5: (0,0), 6: (1,0), 7: (2,0), 8: (3,0),
@@ -106,7 +101,6 @@ def draw_chart(data):
         2: (0,3), 1: (1,3), 0: (2,3), 11: (3,3)
     }
     
-    # 繪製每個宮位
     palaces = data['palaces']
     SIDEBAR_W = 70 
     
@@ -114,13 +108,10 @@ def draw_chart(data):
         if i not in pos_map: continue
         c, r = pos_map[i]
         x, y = c * col_w, r * row_h
-        
-        # 宮位外框
         draw.rectangle([x, y, x+col_w, y+row_h], outline=THEME["grid"], width=2)
         sidebar_x = x + col_w - SIDEBAR_W
         draw.rectangle([sidebar_x, y, x+col_w, y+row_h], outline=THEME["grid"], fill=THEME["sidebar_bg"], width=1)
         
-        # 宮位名稱 (天干地支)
         gan, zhi = p['ganzhi'][0], p['ganzhi'][1]
         text_center_x = sidebar_x + SIDEBAR_W // 2
         ganzhi_box_h, ganzhi_box_w = 70, 40 
@@ -131,7 +122,6 @@ def draw_chart(data):
         draw.text((text_center_x, box_y1 + 18), gan, fill=THEME["text_dim"], font=font_ganzhi, anchor="mm")
         draw.text((text_center_x, box_y1 + 52), zhi, fill=THEME["text_dim"], font=font_ganzhi, anchor="mm")
         
-        # 宮名直排
         base_name = p['name'].replace("宮", "")
         total_chars = len(base_name) + 1 + (1 if p['is_body'] else 0)
         char_height = 45
@@ -145,13 +135,11 @@ def draw_chart(data):
             current_y += char_height
             draw.text((text_center_x, current_y), "身", fill=THEME["lucky_star"], font=font_palace_bold, anchor="mm")
 
-        # 大限
         daxian_text = p['daxian']
         daxian_x, daxian_y = x + 10, y + row_h - 50 
         draw.rectangle([daxian_x, daxian_y, daxian_x + 90, daxian_y + 40], outline=THEME["grid"], fill=THEME["box_bg"])
         draw.text((daxian_x + 45, daxian_y + 20), daxian_text, fill="white", font=font_daxian, anchor="mm")
 
-        # 星曜繪製
         cursor_x, cursor_y_base = sidebar_x - 25, y + 20
         all_stars = [s for s in p['stars'] if s['type'] == 'major'] + [s for s in p['stars'] if s['type'] != 'major']
         
@@ -176,7 +164,6 @@ def draw_chart(data):
                 draw.text((cursor_x, cur_draw_y), s_hua, fill="white", font=font, anchor="mm")
             
             cursor_x -= 50 if s_type == 'major' else 38
-
     return img
 
 # --- 5. IG 回覆功能 (文字 & 圖片) ---
@@ -200,7 +187,8 @@ def reply_image(user_id, image_url):
         }
     }
     r = requests.post(url, headers=headers, json=data)
-    logger.info(f"圖片發送: {r.status_code}")
+    # 印出錯誤細節，方便除錯
+    logger.info(f"圖片發送狀態: {r.status_code}, 回應: {r.text}")
 
 # --- 6. Webhook 核心邏輯 ---
 @app.get("/webhook")
@@ -222,30 +210,29 @@ async def receive_message(request: Request):
                         if sender_id and text:
                             logger.info(f"收到訊息: {text}")
                             
-                            # 🔥 判斷指令：是否有空格非常重要！ 🔥
-                            # 格式範例：命盤 1990 1 1 12 女 (預設國曆)
-                            # 格式範例：命盤 1990 1 1 12 女 陰 (指定農曆)
+                            # 🔥 判斷指令：算命盤 🔥
                             if text.startswith("命盤"):
                                 try:
-                                    parts = text.split() # 用空格切分
-                                    
-                                    # 確保至少有 6 個參數 (命盤+年+月+日+時+性別)
+                                    parts = text.split()
                                     if len(parts) >= 6:
                                         y = int(parts[1])
                                         m = int(parts[2])
                                         d = int(parts[3])
                                         h = int(parts[4])
-                                        g = parts[5]
+                                        g = parts[5] # 這裡是中文 "男" 或 "女"
                                         
-                                        # 偵測第 7 個參數，如果有寫 "陰" 或 "農"，就開啟農曆模式
                                         is_lunar_param = "false"
                                         type_str = "國曆"
                                         if len(parts) >= 7 and (parts[6] == "陰" or parts[6] == "農"):
                                             is_lunar_param = "true"
                                             type_str = "農曆"
                                         
-                                        # 組合網址 (把 is_lunar 參數帶進去)
-                                        chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={g}&is_lunar={is_lunar_param}"
+                                        # 🔥 關鍵修正：把中文性別轉成 URL 編碼 (例如 %E7%94%B7) 🔥
+                                        encoded_gender = urllib.parse.quote(g)
+                                        
+                                        chart_url = f"{BASE_URL}/test?year={y}&month={m}&day={d}&hour={h}&gender={encoded_gender}&is_lunar={is_lunar_param}"
+                                        
+                                        logger.info(f"產生命盤網址: {chart_url}")
                                         
                                         reply_text(sender_id, f"大師收到！正在為您繪製 {y}年{m}月{d}日 ({type_str}) 的命盤...")
                                         reply_image(sender_id, chart_url)
@@ -255,7 +242,7 @@ async def receive_message(request: Request):
                                     logger.error(f"解析錯誤: {e}")
                                     reply_text(sender_id, "資料有誤，請檢查輸入格式。")
                             
-                            # 🔥 一般聊天 (交給 Gemini) 🔥
+                            # 🔥 一般聊天 (Gemini) 🔥
                             else:
                                 if GEMINI_API_KEY:
                                     try:
@@ -267,7 +254,7 @@ async def receive_message(request: Request):
     except:
         return {"status": "error"}
 
-# --- 7. 畫圖 API (IG 會來讀這裡的圖片) ---
+# --- 7. 畫圖 API ---
 @app.get("/test")
 def test_chart(year: int, month: int, day: int, hour: int, gender: str, is_lunar: bool = False):
     chart_data = get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=is_lunar)
