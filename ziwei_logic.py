@@ -1,11 +1,11 @@
 import math
 from lunar_python import Lunar, Solar
 
-# --- 基礎資料 (通用常數) ---
+# --- 基礎資料 ---
 GAN = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
 ZHI = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
 
-# --- 納音五行局對照表 (這是紫微斗數的"字典"，用於查詢任何干支的五行) ---
+# 納音五行局對照表
 NAYIN = {
     '甲子': 4, '乙丑': 4, '丙寅': 6, '丁卯': 6, '戊辰': 3, '己巳': 3, '庚午': 5, '辛未': 5, '壬申': 4, '癸酉': 4, '甲戌': 6, '乙亥': 6,
     '丙子': 2, '丁丑': 2, '戊寅': 5, '己卯': 5, '庚辰': 4, '辛巳': 4, '壬午': 3, '癸未': 3, '甲申': 2, '乙酉': 2, '丙戌': 5, '丁亥': 5,
@@ -16,48 +16,37 @@ NAYIN = {
 BUREAU_NAMES = {2: "水二局", 3: "木三局", 4: "金四局", 5: "土五局", 6: "火六局"}
 
 def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
-    """
-    紫微斗數通用排盤函數
-    適用於任何年份、任何性別、陰陽曆
-    """
-    
-    # --- 1. 動態日期轉換 ---
-    # 這裡會根據傳入的 year/month/day 自動運算，絕對不寫死
+    # --- 1. 日期處理 ---
     if is_lunar:
         try:
-            # 陰曆轉陽曆物件
             lunar_obj = Lunar.fromYmd(year, month, day)
             solar_obj = lunar_obj.getSolar()
         except:
-            return error_chart("日期格式錯誤")
+            return error_chart("日期錯誤")
     else:
-        # 陽曆直接轉
         solar_obj = Solar.fromYmd(year, month, day)
 
-    # 取得標準運算用農曆 (lunar-python 庫會自動處理閏月等複雜曆法)
     lunar = solar_obj.getLunar()
     l_year = lunar.getYear()
     l_month = lunar.getMonth()
     if l_month < 0: l_month = abs(l_month)
     l_day = lunar.getDay()
     
-    # 時辰索引 (動態計算：子=0, 丑=1 ... 亥=11)
     time_idx = (hour + 1) // 2 % 12
     
-    # 生年干支 (動態計算)
     year_gan_idx = (l_year - 4) % 10
     year_zhi_idx = (l_year - 4) % 12
     year_gan = GAN[year_gan_idx]
     year_zhi = ZHI[year_zhi_idx]
 
-    # --- 2. 命身宮公式 (通用公式) ---
-    # 命宮 = 寅宮(2) + (月-1) - 時
+    # --- 2. 定命身宮 ---
+    # 命宮 = 寅(2) + (月-1) - 時
     ming_idx = (2 + (l_month - 1) - time_idx) % 12
-    # 身宮 = 寅宮(2) + (月-1) + 時
+    # 身宮 = 寅(2) + (月-1) + 時
     shen_idx = (2 + (l_month - 1) + time_idx) % 12
 
-    # --- 3. 佈十二宮 & 五虎遁 (通用公式) ---
-    # 五虎遁起手式：(年干Index % 5) * 2 + 2
+    # --- 3. 佈十二宮 & 五虎遁 (🔥修正BUG🔥) ---
+    # 起始干 (寅宮)
     start_gan_idx = (year_gan_idx % 5) * 2 + 2
     start_gan_idx %= 10
     
@@ -65,11 +54,13 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
     base_names = ["命宮", "兄弟", "夫妻", "子女", "財帛", "疾厄", "遷移", "交友", "官祿", "田宅", "福德", "父母"]
     
     for i in range(12):
-        # 逆布十二宮
         current_idx = (ming_idx - i) % 12
         
-        # 動態計算該宮天干
-        p_gan_idx = (current_idx - 2 + start_gan_idx) % 10
+        # 🔥 修正宮干公式：先算距離寅宮幾步，再加起始干
+        # 寅(2) -> 距離0, 卯(3) -> 距離1 ... 子(0) -> 距離10
+        steps_from_yin = (current_idx - 2) % 12
+        p_gan_idx = (start_gan_idx + steps_from_yin) % 10
+        
         p_ganzhi = GAN[p_gan_idx] + ZHI[current_idx]
         
         palaces[current_idx] = {
@@ -80,44 +71,46 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
             "daxian": ""
         }
 
-    # --- 4. 查表定五行局 ---
+    # --- 4. 定五行局 ---
     ming_ganzhi = palaces[ming_idx]['ganzhi']
-    bureau_num = NAYIN.get(ming_ganzhi, 2) # 查不到預設水二(防呆)，但正常都會查到
+    bureau_num = NAYIN.get(ming_ganzhi, 2)
     bureau_name = BUREAU_NAMES[bureau_num]
 
-    # --- 5. 安紫微星 (通用演算法) ---
-    # 呼叫下面的通用函數，根據 生日(day) 和 局數(bureau) 計算
+    # --- 5. 安紫微星 ---
     ziwei_pos = get_ziwei_location(l_day, bureau_num)
 
-    # --- 6. 安十四主星 (相對位置法) ---
-    # 不管紫微在哪，其他星的位置都是相對固定的，這是紫微斗數的規則
+    # --- 6. 安十四主星 (🔥修正天府公式🔥) ---
+    # 紫微系
     ziwei_map = {0: "紫微", 11: "天機", 9: "太陽", 8: "武曲", 7: "天同", 4: "廉貞"}
     for offset, name in ziwei_map.items():
         idx = (ziwei_pos + offset) % 12
         palaces[idx]['stars'].append({"name": name, "type": "major", "hua": ""})
 
-    # 天府系 (寅申線對稱)
-    tianfu_pos = (2 - ziwei_pos) % 12
+    # 天府系 (🔥修正：使用標準斜對角公式 (4 - 紫微) )
+    # 公式：(4 - 紫微) % 12 (以子0為基準)
+    # 例如：紫微在子(0) -> 天府在辰(4)。紫微在午(6) -> 天府在戌(10)。
+    tianfu_pos = (4 - ziwei_pos) % 12
+    
     tianfu_map = {0: "天府", 1: "太陰", 2: "貪狼", 3: "巨門", 4: "天相", 5: "天梁", 6: "七殺", 10: "破軍"}
     for offset, name in tianfu_map.items():
         idx = (tianfu_pos + offset) % 12
         palaces[idx]['stars'].append({"name": name, "type": "major", "hua": ""})
 
-    # --- 7. 安吉煞星 (全部使用變數計算，不寫死) ---
+    # --- 7. 安吉煞星 ---
     
-    # 昌曲 (依時辰)
+    # 昌曲
     wenchang = (10 - time_idx) % 12
     wenqu = (4 + time_idx) % 12
     palaces[wenchang]['stars'].append({"name": "文昌", "type": "lucky", "hua": ""})
     palaces[wenqu]['stars'].append({"name": "文曲", "type": "lucky", "hua": ""})
 
-    # 輔弼 (依月分)
+    # 輔弼
     zuofu = (4 + l_month - 1) % 12
     youbi = (10 - (l_month - 1)) % 12
     palaces[zuofu]['stars'].append({"name": "左輔", "type": "lucky", "hua": ""})
     palaces[youbi]['stars'].append({"name": "右弼", "type": "lucky", "hua": ""})
 
-    # 魁鉞 (依年干)
+    # 魁鉞
     kui_yue = {
         "甲": (1, 7), "戊": (1, 7), "庚": (1, 7),
         "乙": (0, 8), "己": (0, 8),
@@ -130,7 +123,7 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
         palaces[k]['stars'].append({"name": "天魁", "type": "lucky", "hua": ""})
         palaces[y]['stars'].append({"name": "天鉞", "type": "lucky", "hua": ""})
 
-    # 祿存、羊陀 (依年干)
+    # 祿存、羊陀
     lucun_pos_map = {"甲": 2, "乙": 3, "丙": 5, "丁": 6, "戊": 5, "己": 6, "庚": 8, "辛": 9, "壬": 11, "癸": 0}
     if year_gan in lucun_pos_map:
         lu = lucun_pos_map[year_gan]
@@ -140,7 +133,7 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
         palaces[yang]['stars'].append({"name": "擎羊", "type": "bad", "hua": ""})
         palaces[tuo]['stars'].append({"name": "陀羅", "type": "bad", "hua": ""})
 
-    # 火鈴 (依年支+時辰)
+    # 火鈴
     huo_ling_start = {
         "寅": (1, 3), "午": (1, 3), "戌": (1, 3),
         "申": (2, 10), "子": (2, 10), "辰": (2, 10),
@@ -154,30 +147,30 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
         palaces[huo]['stars'].append({"name": "火星", "type": "bad", "hua": ""})
         palaces[ling]['stars'].append({"name": "鈴星", "type": "bad", "hua": ""})
 
-    # 空劫 (依時辰)
+    # 空劫
     dijie = (11 + time_idx) % 12
     dikong = (11 - time_idx) % 12
     palaces[dijie]['stars'].append({"name": "地劫", "type": "bad", "hua": ""})
     palaces[dikong]['stars'].append({"name": "地空", "type": "bad", "hua": ""})
 
-    # 天馬 (依年支)
+    # 天馬 (年支) - 寅午戌在申
     tianma_map = {"寅": 8, "午": 8, "戌": 8, "申": 2, "子": 2, "辰": 2, "巳": 11, "酉": 11, "丑": 11, "亥": 5, "卯": 5, "未": 5}
     if year_zhi in tianma_map:
         palaces[tianma_map[year_zhi]]['stars'].append({"name": "天馬", "type": "flower", "hua": ""})
 
-    # 紅鸞天喜 (依年支)
+    # 紅鸞天喜
     hongluan = (3 - year_zhi_idx) % 12
     tianxi = (hongluan + 6) % 12
     palaces[hongluan]['stars'].append({"name": "紅鸞", "type": "flower", "hua": ""})
     palaces[tianxi]['stars'].append({"name": "天喜", "type": "flower", "hua": ""})
 
-    # 天刑天姚 (依月分)
+    # 天刑天姚
     tianxing = (9 + l_month - 1) % 12
     tianyao = (1 + l_month - 1) % 12
     palaces[tianxing]['stars'].append({"name": "天刑", "type": "bad", "hua": ""})
     palaces[tianyao]['stars'].append({"name": "天姚", "type": "bad", "hua": ""})
 
-    # --- 8. 動態安四化 (根據輸入的年份天干決定) ---
+    # --- 8. 四化 ---
     SIHUA = {
         "甲": {"廉貞":"祿", "破軍":"權", "武曲":"科", "太陽":"忌"},
         "乙": {"天機":"祿", "天梁":"權", "紫微":"科", "太陰":"忌"},
@@ -195,14 +188,10 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
         for s in p['stars']:
             if s['name'] in my_sihua: s['hua'] = my_sihua[s['name']]
 
-    # --- 9. 計算大限 (根據陰陽男/女決定順逆) ---
+    # --- 9. 大限 ---
     is_yang_year = ((l_year - 4) % 2 == 0) 
     is_male = (gender == "男")
-    
-    if (is_yang_year and is_male) or (not is_yang_year and not is_male):
-        direction = 1
-    else:
-        direction = -1
+    direction = 1 if (is_yang_year and is_male) or (not is_yang_year and not is_male) else -1
     
     for i in range(12):
         offset = i * direction
@@ -211,19 +200,16 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
         end_age = start_age + 9
         palaces[idx]['daxian'] = f"{start_age}-{end_age}"
 
-    # --- 10. 流年標籤 (根據目標年份動態計算) ---
+    # --- 10. 流年標籤 ---
     target_zhi_char = ZHI[(target_year - 4) % 12] 
     age = target_year - solar_obj.getYear() + 1
     
     for i, p in enumerate(palaces):
         p['tags'] = {}
-        # 流年：宮位地支 == 流年地支
         if ZHI[i] == target_zhi_char: p['tags']['liunian'] = True
-        # 大限：年齡是否在該宮位區間
         start, end = map(int, p['daxian'].split('-'))
         if start <= age <= end: p['tags']['dayun'] = True
 
-    # 日期顯示字串
     date_str = f"農曆：{l_year}年 {l_month}月 {l_day}日"
     if not is_lunar:
         date_str = f"國曆：{year}年 {month}月 {day}日"
@@ -239,24 +225,15 @@ def get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=False):
     }
 
 def get_ziwei_location(day, bureau):
-    """
-    安紫微星演算法 (標準口訣，適用於所有局數與日期)
-    """
     remainder = day % bureau
     quotient = day // bureau
     
     if remainder == 0:
-        # 整除：寅宮起商數
         return (2 + (quotient - 1)) % 12
     else:
-        # 不整除：需補數
         supplement = bureau - remainder
         new_quotient = (day + supplement) // bureau
-        
-        # 基礎位置
         base_pos = (2 + (new_quotient - 1)) % 12
-        
-        # 奇數補數退，偶數補數進
         if supplement % 2 == 1:
             return (base_pos - supplement) % 12
         else:
