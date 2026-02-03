@@ -4,3 +4,4 @@ requests
 pillow
 google-generativeai
 lunar-python
+line-bot-sdk
