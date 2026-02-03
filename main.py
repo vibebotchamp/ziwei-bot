@@ -35,33 +35,42 @@ if GEMINI_API_KEY:
 else:
     logger.error("❌ 尚未設定 GEMINI_API_KEY！")
 
-# --- 3. 全域字體載入 (🔥 這是速度變快的關鍵！只載入一次 🔥) ---
+# --- 3. 全域字體載入 (🔥 修正版：統一使用 Regular 字體，避免找不到檔案 🔥) ---
 YANG_GAN = set(['甲', '丙', '戊', '庚', '壬'])
 ZODIAC_MAP = {'子':'鼠', '丑':'牛', '寅':'虎', '卯':'兔', '辰':'龍', '巳':'蛇', '午':'馬', '未':'羊', '申':'猴', '酉':'雞', '戌':'狗', '亥':'豬'}
-FONT_PATH = "NotoSansCJKtc-Regular.otf"
-FONT_BOLD_PATH = "NotoSansCJKtc-Bold.otf" 
 
+# 設定字體檔案路徑
+FONT_PATH = "NotoSansCJKtc-Regular.otf"
+# ⚠️ 關鍵修正：粗體也指向同一個檔案，確保一定讀得到！
+FONT_BOLD_PATH = "NotoSansCJKtc-Regular.otf" 
+
+# 如果檔案不存在，就下載
 if not os.path.exists(FONT_PATH):
     logger.info("下載標準字體中...")
     url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
-    r = requests.get(url)
-    with open(FONT_PATH, "wb") as f: f.write(r.content)
+    try:
+        r = requests.get(url)
+        with open(FONT_PATH, "wb") as f: f.write(r.content)
+        logger.info("✅ 字體下載成功！")
+    except Exception as e:
+        logger.error(f"❌ 字體下載失敗: {e}")
 
 # 🔥 預先載入所有字體到記憶體 (Global Cache) 🔥
 try:
-    font_h1 = ImageFont.truetype(FONT_BOLD_PATH, 56)
-    font_palace_bold = ImageFont.truetype(FONT_BOLD_PATH, 42)
+    # 這裡全部使用 FONT_PATH (確保檔案存在)
+    font_h1 = ImageFont.truetype(FONT_PATH, 56)
+    font_palace_bold = ImageFont.truetype(FONT_PATH, 42) # 用 Regular 模擬
     font_palace_light = ImageFont.truetype(FONT_PATH, 42)
     font_ganzhi = ImageFont.truetype(FONT_PATH, 24)
-    font_daxian = ImageFont.truetype(FONT_BOLD_PATH, 34)    
-    font_major = ImageFont.truetype(FONT_BOLD_PATH, 42)     
+    font_daxian = ImageFont.truetype(FONT_PATH, 34)    
+    font_major = ImageFont.truetype(FONT_PATH, 42)     
     font_normal = ImageFont.truetype(FONT_PATH, 32) 
     font_mini = ImageFont.truetype(FONT_PATH, 24)
-    font_info = ImageFont.truetype(FONT_BOLD_PATH, 32)
-    logger.info("✅ 字體載入完成！")
+    font_info = ImageFont.truetype(FONT_PATH, 32)
+    logger.info("✅ 字體載入記憶體完成！")
 except Exception as e:
     logger.error(f"❌ 字體載入失敗: {e}")
-    # 如果失敗，使用預設字體避免當機
+    # 如果真的失敗，使用預設字體避免當機
     font_h1 = font_palace_bold = font_palace_light = font_ganzhi = font_daxian = font_major = font_normal = font_mini = font_info = ImageFont.load_default()
 
 THEME = {
@@ -72,13 +81,13 @@ THEME = {
     "hua_ji": "#9C27B0", "tag_dayun": "#FF4500",
 }
 
-# --- 4. 極速畫圖函數 ---
+# --- 4. 極速畫圖函數 (已最佳化) ---
 def draw_chart(data):
     width, height = 1200, 1600
     img = Image.new('RGB', (width, height), color=THEME["bg"])
     draw = ImageDraw.Draw(img)
     
-    # 直接使用全域變數的字體，不需要再 try-load 了
+    # 直接使用全域變數的字體，不需要再 load
 
     center_x, center_y = width // 4, height // 4
     center_w, center_h = width // 2, height // 2
@@ -304,7 +313,7 @@ def receive_message(data: dict = Body(...)):
         logger.error(f"Error: {e}")
         return {"status": "error"}
 
-# --- 7. 畫圖 API (維持同步 def，不使用 async) ---
+# --- 7. 畫圖 API ---
 @app.get("/test")
 def test_chart(year: int, month: int, day: int, hour: int, gender: str, is_lunar: bool = False):
     chart_data = get_chart(year, month, day, hour, gender, target_year=2025, is_lunar=is_lunar)
